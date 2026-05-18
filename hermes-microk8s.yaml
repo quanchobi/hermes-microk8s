@@ -1,0 +1,112 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hermes-pvc
+spec:
+  storageClassName: openebs-jiva-csi-default
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hermes-agent
+  labels:
+    app: hermes
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: hermes
+  template:
+    metadata:
+      labels:
+        app: hermes
+    spec:
+      initContainers:
+      - name: install-deps
+        image: nousresearch/hermes-agent:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          uv pip install \
+            --target /opt/python-packages \
+            python-telegram-bot
+        volumeMounts:
+        - mountPath: /opt/python-packages
+          name: shared-packages
+      containers:
+      - name: hermes
+        image: nousresearch/hermes-agent:latest
+        args: ["gateway", "run"]
+        env:
+        - name: PYTHONPATH
+          value: "/opt/python-packages"
+        - name: HERMES_DASHBOARD
+          value: "1"
+        - name: API_SERVER_ENABLED
+          value: "true"
+        - name: API_SERVER_HOST
+          value: "0.0.0.0"
+        - name: API_SERVER_KEY
+          valueFrom:
+            secretKeyRef:
+              name: hermes-secrets
+              key: api-server-key
+        - name: OUTPUT_DIR
+          value: "/opt/data/cache/documents"
+        ports:
+        - containerPort: 8642
+          name: api-port
+        - containerPort: 9119
+          name: dash-port
+        resources:
+          limits:
+            cpu: "2.0"
+            memory: 4Gi
+          requests:
+            cpu: "1.0"
+            memory: 2Gi
+        volumeMounts:
+        - mountPath: /opt/data
+          name: hermes-storage
+        - mountPath: /dev/shm
+          name: dshm
+        - mountPath: /opt/python-packages
+          name: shared-packages
+      volumes:
+        - name: shared-packages
+          emptyDir: {}
+        - name: hermes-storage
+          persistentVolumeClaim:
+            claimName: hermes-pvc
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hermes-service
+spec:
+  type: NodePort
+  selector:
+    app: hermes
+  ports:
+    - name: gateway-api
+      protocol: TCP
+      port: 8642
+      targetPort: 8642
+      nodePort: 31642
+    - name: dashboard
+      protocol: TCP
+      port: 9119
+      targetPort: 9119
+      nodePort: 31119
