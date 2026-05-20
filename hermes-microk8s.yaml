@@ -55,10 +55,7 @@ spec:
         - name: API_SERVER_HOST
           value: "0.0.0.0"
         - name: API_SERVER_KEY
-          valueFrom:
-            secretKeyRef:
-              name: hermes-secrets
-              key: api-server-key
+          value: "super_secret_key"
         - name: OUTPUT_DIR
           value: "/opt/data/cache/documents"
         ports:
@@ -110,3 +107,57 @@ spec:
       port: 9119
       targetPort: 9119
       nodePort: 31119
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ubuntu-ssh
+  labels:
+    app: ubuntu-ssh
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ubuntu-ssh
+  template:
+    metadata:
+      labels:
+        app: ubuntu-ssh
+    spec:
+      containers:
+      - name: ubuntu-ssh
+        image: localhost:32000/ubuntu-sshd:24.04
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          mkdir -p /home/ubuntu/.ssh && \
+          echo "$PUBLIC_KEY" > /home/ubuntu/.ssh/authorized_keys && \
+          chmod 700 /home/ubuntu/.ssh && \
+          chmod 600 /home/ubuntu/.ssh/authorized_keys && \
+          chown -R ubuntu:ubuntu /home/ubuntu && \
+          ssh-keygen -A && \
+          exec /usr/sbin/sshd -D -e
+        env:
+        - name: PUBLIC_KEY
+          value: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEl3pctYrLZIpTCdVcFtFtdMVBgaTsJvZFdaOG6LZWmm ubuntu@adorable-anurognathus"
+        ports:
+        - containerPort: 22
+        resources:
+          limits:
+            cpu: "0.5"
+            memory: 512Mi
+          requests:
+            cpu: "0.1"
+            memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ubuntu-ssh
+spec:
+  selector:
+    app: ubuntu-ssh
+  ports:
+  - port: 22
+    targetPort: 22
+  type: ClusterIP
